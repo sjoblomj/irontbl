@@ -1,0 +1,25 @@
+[package]
+name = "irontbl"
+edition = "2021"
+version = "0.1.0"
+authors = ["Johan Sjöblom <sjoblom.johan@gmail.com>"]
+description = "A tool to convert StarCraft and WarCraft II TBL files to TXT and back."
+license = "MIT"
+repository = "https://github.com/sjoblomj/irontbl"
+readme = "README.md"
+categories = ["strings", "game-development"]
+keywords = ["starcraft", "warcraft-2", "tbl", "string", "converter"]
+
+[[bin]]
+name = "irontbl"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5.35", features = ["derive"] }  # For CLI argument parsing
+
+[dev-dependencies]
+tempfile = "3"
+
+#[profile.release]
+#opt-level = 3         # Optimize for maximum performance
+#lto = true            # Enable Link-Time Optimization for smaller binaries
