@@ -1,41 +1,51 @@
 use std::fs::File;
-use std::io::{self, Read, Write, BufRead, BufReader};
-use std::env;
+use std::io::{self, stdout, Read, Write, BufRead, BufReader};
+use clap::{Parser, ValueEnum};
+
+#[derive(Parser)]
+#[command(version, about = "Converts *.tbl files from Blizzard games to text and vice versa.")]
+struct Cli {
+    #[arg(short, long, value_name = "INPUT_FILE", help = "Specifies the input file path")]
+    input: String,
+
+    #[arg(short, long, value_name = "OUTPUT_FILE", help = "Specifies the output file path. If omitted in read mode, output goes to stdout.")]
+    output: Option<String>,
+
+    #[arg(short, long, value_name = "MODE", value_enum, help = "Mode of operation")]
+    mode: Mode,
+}
+
+#[derive(Clone, ValueEnum)]
+enum Mode {
+    TblToText,
+    TextToTbl,
+}
+
 
 fn main() -> io::Result<()> {
-    let args: Vec<String> = env::args().collect();
-    if args.len() != 4 && args.len() != 2 {
-        eprintln!("Usage: {} [tbl2txt|txt2tbl] <input_binary> <output_text>", args[0]);
-        std::process::exit(1);
-    }
+    let args = Cli::parse();
 
-    let mode_flag = &args[1];
-    if mode_flag == "--help" || mode_flag == "-h" {
-        eprintln!("IronTBL 0.1 by Johan Sjöblom");
-        eprintln!("Usage: {} [tbl2txt|txt2tbl] <input_binary> <output_text>", args[0]);
-        eprintln!("  tbl2txt: Convert binary *.tbl files to text.");
-        eprintln!("  txt2tbl: Convert text to binary *.tbl files.");
-        eprintln!("");
-        eprintln!("Converts *.tbl files from Blizzard games to text and vice versa.");
-        std::process::exit(0);
-    }
-
-    let input_path = &args[2];
-    let output_path = &args[3];
-
-    if mode_flag == "tbl2txt" {
-        read_binary_to_text(input_path, output_path)?;
-    } else if mode_flag == "txt2tbl" {
-        write_text_to_binary(input_path, output_path)?;
-    } else {
-        eprintln!("Invalid mode. Use 'tbl2txt' to convert binary to text, 'txt2tbl' to convert text to binary.");
-        std::process::exit(1);
+    match args.mode {
+        Mode::TblToText => {
+            read_binary_to_text(&args.input, &args.output)?;
+        },
+        Mode::TextToTbl => {
+            if args.output.is_none() {
+                eprintln!("Output file must be specified in text-to-tbl mode.");
+                std::process::exit(1);
+            }
+            write_text_to_binary(&args.input, &args.output.unwrap())?;
+        },
     }
 
     Ok(())
 }
 
-fn read_binary_to_text(input_path: &str, output_path: &str) -> io::Result<()> {
+fn read_binary_to_text(
+    input_path: &str,
+    output_path: &Option<String>,
+) -> io::Result<()> {
+
     let mut file = File::open(input_path)?;
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer)?;
@@ -58,7 +68,10 @@ fn read_binary_to_text(input_path: &str, output_path: &str) -> io::Result<()> {
         offsets.push(offset);
     }
 
-    let mut output = File::create(output_path)?;
+    let mut output: Box<dyn Write> = match output_path {
+        Some(path) => Box::new(File::create(path)?),
+        None => Box::new(stdout()),
+    };
 
     for i in 0..offsets.len() {
 
