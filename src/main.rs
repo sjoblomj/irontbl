@@ -60,24 +60,18 @@ fn read_binary_to_text(input_path: &str, output_path: &str) -> io::Result<()> {
 
     let mut output = File::create(output_path)?;
 
-    for &offset in &offsets {
-        if offset >= buffer.len() {
-            eprintln!("Invalid string offset detected: {}", offset);
-            std::process::exit(1);
-        }
+    for i in 0..offsets.len() {
 
-        let mut end = offset;
-        while end < buffer.len() && buffer[end] != 0 {
-            end += 1;
-        }
-
-        let string_data = &buffer[offset..end];
-        if let Ok(string) = String::from_utf8(string_data.to_vec()) {
-            writeln!(output, "{}", string)?;
+        let start = offsets[i];
+        let end = if i + 1 < offsets.len() {
+            offsets[i + 1]
         } else {
-            eprintln!("Invalid UTF-8 sequence at offset {}", offset);
-            std::process::exit(1);
-        }
+            buffer.len()
+        };
+
+        let string_data = &buffer[start..end];
+        let encoded = encode_special_bytes(string_data, control_character_mode);
+        writeln!(output, "{}", encoded)?;
     }
 
     Ok(())
