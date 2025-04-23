@@ -13,6 +13,9 @@ struct Cli {
 
     #[arg(short, long, value_name = "MODE", value_enum, help = "Mode of operation")]
     mode: Mode,
+
+    #[arg(short, long, value_name = "LINE_NUMBER", help = "If given, only the specified line will be printed.")]
+    line_number: Option<u16>,
 }
 
 #[derive(Clone, ValueEnum)]
@@ -27,11 +30,15 @@ fn main() -> io::Result<()> {
 
     match args.mode {
         Mode::TblToText => {
-            read_binary_to_text(&args.input, &args.output)?;
+            read_binary_to_text(&args.input, &args.output, &args.line_number)?;
         },
         Mode::TextToTbl => {
             if args.output.is_none() {
                 eprintln!("Output file must be specified in text-to-tbl mode.");
+                std::process::exit(1);
+            }
+            if args.line_number.is_some() {
+                eprintln!("Line number option is not applicable in text-to-tbl mode.");
                 std::process::exit(1);
             }
             write_text_to_binary(&args.input, &args.output.unwrap())?;
@@ -41,9 +48,11 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
+
 fn read_binary_to_text(
     input_path: &str,
     output_path: &Option<String>,
+    line_number: &Option<u16>,
 ) -> io::Result<()> {
 
     let mut file = File::open(input_path)?;
@@ -74,6 +83,9 @@ fn read_binary_to_text(
     };
 
     for i in 0..offsets.len() {
+        if line_number.is_some() && line_number != &Some(i as u16) {
+            continue;
+        }
 
         let start = offsets[i];
         let end = if i + 1 < offsets.len() {
