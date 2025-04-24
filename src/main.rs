@@ -14,6 +14,9 @@ struct Cli {
     #[arg(short, long, value_name = "MODE", value_enum, help = "Mode of operation")]
     mode: Mode,
 
+    #[arg(short, long, value_name = "CONTROL_CHAR_MODE", value_enum, help = "Specifies whether to use decimal or hexadecimal for Control characters", default_value_t = ControlCharacterMode::Decimal)]
+    control_character_mode: ControlCharacterMode,
+
     #[arg(short, long, value_name = "LINE_NUMBER", help = "If given, only the specified line will be printed.")]
     line_number: Option<u16>,
 }
@@ -24,13 +27,27 @@ enum Mode {
     TextToTbl,
 }
 
+#[derive(Clone, Copy, PartialEq, ValueEnum)]
+enum ControlCharacterMode {
+    Decimal,
+    Hexadecimal,
+}
+impl ControlCharacterMode {
+    fn radix(self) -> u32 {
+        match self {
+            ControlCharacterMode::Decimal => 10,
+            ControlCharacterMode::Hexadecimal => 16,
+        }
+    }
+}
+
 
 fn main() -> io::Result<()> {
     let args = Cli::parse();
 
     match args.mode {
         Mode::TblToText => {
-            read_binary_to_text(&args.input, &args.output, &args.line_number)?;
+            read_binary_to_text(&args.input, &args.output, &args.control_character_mode, &args.line_number)?;
         },
         Mode::TextToTbl => {
             if args.output.is_none() {
@@ -41,7 +58,7 @@ fn main() -> io::Result<()> {
                 eprintln!("Line number option is not applicable in text-to-tbl mode.");
                 std::process::exit(1);
             }
-            write_text_to_binary(&args.input, &args.output.unwrap())?;
+            write_text_to_binary(&args.input, &args.output.unwrap(), &args.control_character_mode)?;
         },
     }
 
@@ -49,9 +66,50 @@ fn main() -> io::Result<()> {
 }
 
 
+fn encode_special_bytes(input: &[u8], control_character_mode: &ControlCharacterMode) -> String {
+    input.iter().map(|&b| {
+        if b < 0x20 || b == 0x3C || b == 0x3E {
+            if control_character_mode == &ControlCharacterMode::Decimal {
+                format!("<{}>", b)
+            } else {
+                format!("<{:02X}>", b)
+            }
+        } else {
+            (b as char).to_string()
+        }
+    }).collect()
+}
+
+fn decode_special_strings(input: &str, control_character_mode: &ControlCharacterMode) -> Vec<u8> {
+    let mut output = Vec::new();
+    let mut chars = input.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '<' {
+            let mut num_str = String::new();
+            while let Some(&next) = chars.peek() {
+                chars.next();
+                if next == '>' {
+                    break;
+                }
+                num_str.push(next);
+            }
+
+            let parsed = u8::from_str_radix(&num_str, control_character_mode.radix());
+            if let Ok(num) = parsed {
+                output.push(num);
+            }
+        } else {
+            output.push(c as u8);
+        }
+    }
+    output
+}
+
 fn read_binary_to_text(
     input_path: &str,
     output_path: &Option<String>,
+    control_character_mode: &ControlCharacterMode,
     line_number: &Option<u16>,
 ) -> io::Result<()> {
 
@@ -102,7 +160,7 @@ fn read_binary_to_text(
     Ok(())
 }
 
-fn write_text_to_binary(input_path: &str, output_path: &str) -> io::Result<()> {
+fn write_text_to_binary(input_path: &str, output_path: &str, control_character_mode: &ControlCharacterMode) -> io::Result<()> {
     let file = File::open(input_path)?;
     let reader = BufReader::new(file);
     let strings: Vec<String> = reader.lines().collect::<Result<_, _>>()?;
@@ -117,8 +175,7 @@ fn write_text_to_binary(input_path: &str, output_path: &str) -> io::Result<()> {
 
     for string in &strings {
         offsets.push(current_offset as u16);
-        let mut bytes = string.as_bytes().to_vec();
-        bytes.push(0);
+        let bytes = decode_special_strings(string, control_character_mode);
         data.extend_from_slice(&bytes);
         current_offset += bytes.len();
     }
