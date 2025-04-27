@@ -1,6 +1,7 @@
-use std::fs::File;
-use std::io::{self, stdout, Read, Write, BufRead, BufReader};
 use clap::{Parser, ValueEnum};
+use std::collections::HashSet;
+use std::fs::File;
+use std::io::{self, stdout, BufRead, BufReader, Read, Write};
 
 #[derive(Parser)]
 #[command(version, about = "Converts *.tbl files from Blizzard games to text and vice versa.")]
@@ -172,7 +173,12 @@ fn read_binary_to_text(
     Ok(())
 }
 
-fn write_text_to_binary(input_path: &str, output_path: &str, control_character_mode: &ControlCharacterMode) -> io::Result<()> {
+fn write_text_to_binary(
+    input_path:  &str,
+    output_path: &str,
+    control_character_mode: &ControlCharacterMode,
+) -> io::Result<()> {
+
     let file = File::open(input_path)?;
     let reader = BufReader::new(file);
     let strings: Vec<String> = reader.lines().collect::<Result<_, _>>()?;
@@ -185,7 +191,12 @@ fn write_text_to_binary(input_path: &str, output_path: &str, control_character_m
     let mut data = Vec::new();
     let mut current_offset = 2 + (num_strings as usize) * 2;
 
-    for string in &strings {
+    let mut unterminated_strings = HashSet::new();
+
+    for (i, string) in strings.iter().enumerate() {
+        if !string.ends_with("<0>") {
+            unterminated_strings.insert(i + 1); // 1-based line numbers
+        }
         offsets.push(current_offset as u16);
         let bytes = decode_special_strings(string, control_character_mode);
         data.extend_from_slice(&bytes);
@@ -200,6 +211,12 @@ fn write_text_to_binary(input_path: &str, output_path: &str, control_character_m
 
     let mut output = File::create(output_path)?;
     output.write_all(&buffer)?;
+
+    if !unterminated_strings.is_empty() {
+        let mut lines: Vec<_> = unterminated_strings.into_iter().collect();
+        lines.sort();
+        println!("Warning: The following lines were not properly null-terminated (missing <0>):\n  [{:?}]" , lines);
+    }
 
     Ok(())
 }
@@ -235,7 +252,8 @@ fn analyse(input_path: &str) -> io::Result<()> {
     let first_offset = *offsets.iter().min().unwrap_or(&header_end);
 
     if first_offset > header_end {
-        println!("Warning: Detected {} bytes of unknown data between header and first string:", first_offset - header_end);
+        println!("Warning: Detected {} bytes of unknown data between header and first string:",
+                 first_offset - header_end);
         let mut bytes = "".to_string();
         let buf = buffer[header_end..first_offset].to_vec();
         for b in &buf {
