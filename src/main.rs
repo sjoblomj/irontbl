@@ -25,6 +25,7 @@ struct Cli {
 enum Mode {
     TblToText,
     TextToTbl,
+    Analyse,
 }
 
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
@@ -59,6 +60,17 @@ fn main() -> io::Result<()> {
                 std::process::exit(1);
             }
             write_text_to_binary(&args.input, &args.output.unwrap(), &args.control_character_mode)?;
+        },
+        Mode::Analyse => {
+            if args.output.is_some() {
+                eprintln!("Output file must not be specified in analyse mode.");
+                std::process::exit(1);
+            }
+            if args.line_number.is_some() {
+                eprintln!("Line number option is not applicable in analyse mode.");
+                std::process::exit(1);
+            }
+            analyse(&args.input)?;
         },
     }
 
@@ -190,4 +202,129 @@ fn write_text_to_binary(input_path: &str, output_path: &str, control_character_m
     output.write_all(&buffer)?;
 
     Ok(())
+}
+
+fn analyse(input_path: &str) -> io::Result<()> {
+    let mut file = File::open(input_path)?;
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer)?;
+
+    if buffer.len() < 2 {
+        println!("File too small to contain valid data.");
+        return Ok(());
+    }
+
+    let num_strings = u16::from_le_bytes([buffer[0], buffer[1]]) as usize;
+    println!("Number of entries: {}", num_strings);
+
+    if buffer.len() < 2 + num_strings * 2 {
+        println!("File does not contain enough data for all offsets.");
+        return Ok(());
+    }
+
+    println!("Offset table:");
+    let mut offsets = Vec::new();
+    for i in 0..num_strings {
+        let offset_idx = 2 + i * 2;
+        let offset = u16::from_le_bytes([buffer[offset_idx], buffer[offset_idx + 1]]) as usize;
+        offsets.push(offset);
+        println!("  Entry {:>3}: offset 0x{:0>4X}", i, offset);
+    }
+
+    let header_end = 2 + num_strings * 2;
+    let first_offset = *offsets.iter().min().unwrap_or(&header_end);
+
+    if first_offset > header_end {
+        println!("Warning: Detected {} bytes of unknown data between header and first string:", first_offset - header_end);
+        let mut bytes = "".to_string();
+        let buf = buffer[header_end..first_offset].to_vec();
+        for b in &buf {
+            bytes.push_str(&format!("{:02X} ", b));
+        }
+        println!("{}", &bytes);
+    } else {
+        println!("No unexpected data detected between header and first string.");
+    }
+
+    let mut has_non_null_terminated = false;
+    for i in 0..offsets.len() {
+        let end = if i + 1 < offsets.len() {
+            offsets[i + 1] - 1
+        } else {
+            buffer.len() - 1
+        };
+        if end >= buffer.len() {
+            println!("  Warning: Offset {} is outside the file bounds.", end);
+            continue;
+        }
+        if buffer[end] != 0 {
+            println!("  Warning: Offset {} is not null terminated.", offsets[i]);
+            has_non_null_terminated = true;
+        }
+    }
+
+    if !has_non_null_terminated {
+        println!("All strings appear to be correctly null terminated.");
+    }
+
+    Ok(())
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::{self};
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_special_byte_encoding_decoding() {
+        let mut original = (0..0x20).collect::<Vec<u8>>();
+        original.push(0x3C); // '<'
+        original.push(0x3E); // '>'
+
+        let encoded = encode_special_bytes( &original, &ControlCharacterMode::Decimal);
+        let decoded = decode_special_strings(&encoded, &ControlCharacterMode::Decimal);
+        assert_eq!(original, decoded);
+
+        let encoded = encode_special_bytes( &original, &ControlCharacterMode::Hexadecimal);
+        let decoded = decode_special_strings(&encoded, &ControlCharacterMode::Hexadecimal);
+        assert_eq!(original, decoded);
+
+        let encoded = encode_special_bytes( &original, &ControlCharacterMode::Decimal);
+        let decoded = decode_special_strings(&encoded, &ControlCharacterMode::Hexadecimal);
+        assert_ne!(original, decoded);
+    }
+
+    #[test]
+    fn test_text_to_binary_and_back() -> io::Result<()> {
+        // Prepare test strings with special mappings
+        let ccm = ControlCharacterMode::Decimal;
+        let strings = vec![
+            "Hello<0><1>World<0>",
+            "<2><3><4>Test<0>",
+            "String that is not null terminated",
+            "String with <60>encoded<62> brackets<0>"
+        ];
+
+        // Create temporary input and output files
+        let mut input_txt = NamedTempFile::new()?;
+        for s in &strings {
+            writeln!(input_txt, "{}", s)?;
+        }
+        let output_bin = NamedTempFile::new()?;
+        let result_txt = NamedTempFile::new()?;
+        let result_text_path = Some(result_txt.path().to_str().unwrap().to_string());
+
+        write_text_to_binary(input_txt.path().to_str().unwrap(), output_bin.path().to_str().unwrap(), &ccm)?;
+        read_binary_to_text(output_bin.path().to_str().unwrap(), &result_text_path, &ccm, &None)?;
+
+        // Compare content
+        let result_content = fs::read_to_string(result_txt.path())?;
+        let expected_content = strings.join("\n") + "\n"; // writeln! adds newlines
+        assert_eq!(result_content, expected_content);
+
+        Ok(())
+    }
 }
