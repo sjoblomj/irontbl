@@ -1,4 +1,5 @@
-use clap::{Parser, ValueEnum};
+use clap::{Command, CommandFactory, Parser, ValueEnum, ValueHint};
+use clap_complete::{generate, Generator, Shell};
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{self, stdout, BufRead, BufReader, Read, Write};
@@ -6,20 +7,23 @@ use std::io::{self, stdout, BufRead, BufReader, Read, Write};
 #[derive(Parser)]
 #[command(version, about = "Converts *.tbl files from Blizzard games to text and vice versa.")]
 struct Cli {
-    #[arg(short, long, value_name = "INPUT_FILE", help = "Specifies the input file path")]
-    input: String,
+    #[arg(short, long, value_name = "INPUT_FILE", help = "Specifies the input file path", value_hint = ValueHint::FilePath)]
+    input: Option<String>,
 
-    #[arg(short, long, value_name = "OUTPUT_FILE", help = "Specifies the output file path. If omitted in read mode, output goes to stdout.")]
+    #[arg(short, long, value_name = "OUTPUT_FILE", help = "Specifies the output file path. If omitted in tbl-to-text mode, output goes to stdout.", value_hint = ValueHint::FilePath)]
     output: Option<String>,
 
     #[arg(short, long, value_name = "MODE", value_enum, help = "Mode of operation")]
-    mode: Mode,
+    mode: Option<Mode>,
 
     #[arg(short, long, value_name = "CONTROL_CHAR_MODE", value_enum, help = "Specifies whether to use decimal or hexadecimal for Control characters", default_value_t = ControlCharacterMode::Decimal)]
     control_character_mode: ControlCharacterMode,
 
     #[arg(short, long, value_name = "LINE_NUMBER", help = "If given, only the specified line will be printed.")]
     line_number: Option<u16>,
+
+    #[arg(long = "generate-shell-completions", value_enum, help = "Generate shell completions")]
+    generator: Option<Shell>,
 }
 
 #[derive(Clone, ValueEnum)]
@@ -43,13 +47,36 @@ impl ControlCharacterMode {
     }
 }
 
+fn print_completions<G: Generator>(generator: G, cmd: &mut Command) {
+    generate(
+        generator,
+        cmd,
+        cmd.get_name().to_string(),
+        &mut stdout(),
+    );
+}
 
 fn main() -> io::Result<()> {
     let args = Cli::parse();
+    if let Some(generator) = args.generator {
+        let mut cmd = Cli::command();
+        eprintln!("Generating completion file for {generator:?}...");
+        print_completions(generator, &mut cmd);
+        return Ok(());
+    }
 
-    match args.mode {
+    if args.mode.is_none() {
+        eprintln!("Mode of operation must be specified!");
+        std::process::exit(1);
+    }
+    if args.input.is_none() {
+        eprintln!("Input file must be specified!");
+        std::process::exit(1);
+    }
+
+    match args.mode.unwrap() {
         Mode::TblToText => {
-            read_binary_to_text(&args.input, &args.output, &args.control_character_mode, &args.line_number)?;
+            read_binary_to_text(&args.input.unwrap(), &args.output, &args.control_character_mode, &args.line_number)?;
         },
         Mode::TextToTbl => {
             if args.output.is_none() {
@@ -60,7 +87,7 @@ fn main() -> io::Result<()> {
                 eprintln!("Line number option is not applicable in text-to-tbl mode.");
                 std::process::exit(1);
             }
-            write_text_to_binary(&args.input, &args.output.unwrap(), &args.control_character_mode)?;
+            write_text_to_binary(&args.input.unwrap(), &args.output.unwrap(), &args.control_character_mode)?;
         },
         Mode::Analyse => {
             if args.output.is_some() {
@@ -71,7 +98,7 @@ fn main() -> io::Result<()> {
                 eprintln!("Line number option is not applicable in analyse mode.");
                 std::process::exit(1);
             }
-            analyse(&args.input)?;
+            analyse(&args.input.unwrap())?;
         },
     }
 
@@ -215,7 +242,7 @@ fn write_text_to_binary(
     if !unterminated_strings.is_empty() {
         let mut lines: Vec<_> = unterminated_strings.into_iter().collect();
         lines.sort();
-        println!("Warning: The following lines were not properly null-terminated (missing <0>):\n  [{:?}]" , lines);
+        println!("Warning: The following lines were not properly null-terminated (missing <0>):\n  {:?}" , lines);
     }
 
     Ok(())
