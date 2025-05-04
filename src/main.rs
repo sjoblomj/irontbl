@@ -372,4 +372,56 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_asciitext_to_binary_and_back() -> io::Result<()> {
+        let ccm = ControlCharacterMode::Decimal;
+        let strings = vec![
+            "<72>ello<32>W<111>rld<0>",
+        ];
+
+        // Create temporary input and output files
+        let mut input_txt = NamedTempFile::new()?;
+        for s in &strings {
+            writeln!(input_txt, "{}", s)?;
+        }
+        let output_bin = NamedTempFile::new()?;
+        let result_txt = NamedTempFile::new()?;
+        let result_text_path = Some(result_txt.path().to_str().unwrap().to_string());
+
+        write_text_to_binary(input_txt.path().to_str().unwrap(), output_bin.path().to_str().unwrap(), &ccm)?;
+        read_binary_to_text(output_bin.path().to_str().unwrap(), &result_text_path, &ccm, &None)?;
+
+        // Compare content
+        let result_content = fs::read_to_string(result_txt.path())?;
+        assert_eq!(result_content, "Hello World<0>\n");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_larger_control_characters_are_dropped() -> io::Result<()> {
+        let ccm = ControlCharacterMode::Decimal;
+        let strings = vec![
+            "Hell<366> Worl<355><0>",
+        ];
+
+        // Create temporary input and output files
+        let mut input_txt = NamedTempFile::new()?;
+        for s in &strings {
+            writeln!(input_txt, "{}", s)?;
+        }
+        let output_bin = NamedTempFile::new()?;
+        let result_txt = NamedTempFile::new()?;
+        let result_text_path = Some(result_txt.path().to_str().unwrap().to_string());
+
+        write_text_to_binary(input_txt.path().to_str().unwrap(), output_bin.path().to_str().unwrap(), &ccm)?;
+        read_binary_to_text(output_bin.path().to_str().unwrap(), &result_text_path, &ccm, &None)?;
+
+        // Compare content
+        let result_content = fs::read_to_string(result_txt.path())?;
+        assert_eq!(result_content, "Hell Worl<0>\n");
+
+        Ok(())
+    }
 }
