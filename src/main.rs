@@ -138,6 +138,8 @@ fn decode_special_strings(input: &str, control_character_mode: &ControlCharacter
             let parsed = u8::from_str_radix(&num_str, control_character_mode.radix());
             if let Ok(num) = parsed {
                 output.push(num);
+            } else {
+                eprintln!("Could not decode control character '{}'. Will drop.", num_str);
             }
         } else {
             output.push(c as u8);
@@ -344,7 +346,6 @@ mod tests {
 
     #[test]
     fn test_text_to_binary_and_back() -> io::Result<()> {
-        // Prepare test strings with special mappings
         let ccm = ControlCharacterMode::Decimal;
         let strings = vec![
             "Hello<0><1>World<0>",
