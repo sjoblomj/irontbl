@@ -1,0 +1,5 @@
+[plugin]
+prepend_previewers = [
+    { name = "*.tbl", run = "irontbl"},
+    { name = "*.str", run = "irontbl"},
+]
