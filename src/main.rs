@@ -2,7 +2,7 @@ use clap::{Command, CommandFactory, Parser, ValueEnum, ValueHint};
 use clap_complete::{generate, Generator, Shell};
 use std::collections::HashSet;
 use std::fs::File;
-use std::io::{self, stdout, BufRead, BufReader, Read, Write};
+use std::io::{self, stdout, BufRead, BufReader, Error, ErrorKind, Read, Write};
 
 #[derive(Parser)]
 #[command(version, about = "Converts *.tbl files from Blizzard games to text and vice versa.")]
@@ -60,7 +60,7 @@ fn main() -> io::Result<()> {
     let args = Cli::parse();
     if let Some(generator) = args.generator {
         let mut cmd = Cli::command();
-        eprintln!("Generating completion file for {generator:?}...");
+        println!("Generating completion file for {generator:?}...");
         print_completions(generator, &mut cmd);
         return Ok(());
     }
@@ -161,13 +161,15 @@ fn read_binary_to_text(
 
     if buffer.len() < 2 {
         eprintln!("File too small to contain valid data.");
-        std::process::exit(1);
+        return Err(Error::new(ErrorKind::InvalidInput, "File too small to contain valid data."));
     }
 
     let num_strings = u16::from_le_bytes([buffer[0], buffer[1]]) as usize;
     if buffer.len() < 2 + num_strings * 2 {
-        eprintln!("Invalid file format: Not enough data for string offsets.");
-        std::process::exit(1);
+        eprintln!( "Invalid file format: Not enough data for string offsets.");
+        return Err(Error::new(ErrorKind::InvalidInput,
+              "Invalid file format: Not enough data for string offsets.",
+        ));
     }
 
     let mut offsets = Vec::new();
@@ -256,7 +258,7 @@ fn analyse(input_path: &str) -> io::Result<()> {
     file.read_to_end(&mut buffer)?;
 
     if buffer.len() < 2 {
-        println!("File too small to contain valid data.");
+        eprintln!("File too small to contain valid data.");
         return Ok(());
     }
 
