@@ -1,7 +1,7 @@
 [package]
 name = "irontbl"
 edition = "2021"
-version = "0.1.0"
+version = "1.0.0"
 authors = ["Johan Sjöblom <sjoblom.johan@gmail.com>"]
 description = "A tool to convert StarCraft and WarCraft II TBL files to TXT and back."
 license = "MIT"
@@ -16,7 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.5.37", features = ["derive"] }  # For CLI argument parsing
-clap_complete = "4.5.48"
+clap_complete = "4.5.50"
 
 [dev-dependencies]
 tempfile = "3.19.1"
